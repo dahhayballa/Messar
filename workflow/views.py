@@ -1,6 +1,6 @@
-from rest_framework import generics, permissions, status
+from rest_framework import viewsets, permissions, status, generics
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from projects.models import Project
 from .models import Application, Document
@@ -9,40 +9,52 @@ from .services import submit_application
 
 
 class IsProjectOwner(permissions.BasePermission):
-    """المستثمر يرى ويعدّل وثائق/طلبات مشاريعه هو فقط."""
+    """L'investisseur ne peut voir/modifier que ses propres objets liés."""
 
     def has_object_permission(self, request, view, obj):
         project = obj if isinstance(obj, Project) else obj.project
         return project.investor.user_id == request.user.id
 
 
-class DocumentUploadView(generics.CreateAPIView):
+class DocumentViewSet(viewsets.ModelViewSet):
     """
-    POST /api/workflow/documents/
-    الفصل السادس — رفع وثيقة واحدة. rejected سابقاً؟ الرفع الجديد
-    يستبدل القديمة تلقائياً بفضل unique_together على (project, requirement).
+    ViewSet pour gérer le téléversement des pièces justificatives.
+    POST /api/workflow/documents/ - Téléverser ou remplacer un document.
     """
-    queryset = Document.objects.all()
     serializer_class = DocumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsProjectOwner]
+
+    def get_queryset(self):
+        return Document.objects.filter(project__investor__user=self.request.user)
 
     def perform_create(self, serializer):
         project = serializer.validated_data["project"]
         if project.investor.user_id != self.request.user.id:
             raise permissions.PermissionDenied("هذا المشروع ليس ملكك.")
-        # إعادة رفع بعد رفض: حدّث السجل الموجود بدل خطأ تكرار
+        
+        # Supprimer le document existant du même type s'il y a un ré-upload après rejet (Chapitre 6 & 7)
         Document.objects.filter(
-            project=project, requirement=serializer.validated_data["requirement"]
+            project=project,
+            requirement=serializer.validated_data["requirement"]
         ).delete()
         serializer.save(status=Document.Status.PENDING)
 
 
-class SubmitApplicationView(APIView):
-    """POST /api/workflow/projects/<project_id>/submit/ — الفصل السابع."""
+class ApplicationViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet pour suivre et soumettre l'application de licence.
+    GET /api/workflow/applications/<project_id>/ - Consulter l'état et l'historique (Chapitre 7).
+    POST /api/workflow/applications/<project_id>/submit/ - Soumettre le dossier (Chapitre 7).
+    """
+    serializer_class = ApplicationStatusSerializer
+    permission_classes = [permissions.IsAuthenticated, IsProjectOwner]
+    lookup_field = "project_id"
 
-    permission_classes = [permissions.IsAuthenticated]
+    def get_queryset(self):
+        return Application.objects.filter(project__investor__user=self.request.user)
 
-    def post(self, request, project_id):
+    @action(detail=True, methods=["post"])
+    def submit(self, request, project_id=None):
         project = generics.get_object_or_404(Project, pk=project_id)
         if project.investor.user_id != request.user.id:
             return Response({"detail": "هذا المشروع ليس ملكك."}, status=status.HTTP_403_FORBIDDEN)
@@ -53,19 +65,3 @@ class SubmitApplicationView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(ApplicationStatusSerializer(application).data, status=status.HTTP_200_OK)
-
-
-class ApplicationStatusView(generics.RetrieveAPIView):
-    """
-    GET /api/workflow/projects/<project_id>/status/
-    الفصل السابع فصاعداً — لوحة المتابعة والخط الزمني الكامل.
-    """
-    serializer_class = ApplicationStatusSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    lookup_url_kwarg = "project_id"
-
-    def get_object(self):
-        application = generics.get_object_or_404(Application, project_id=self.kwargs["project_id"])
-        if application.project.investor.user_id != self.request.user.id:
-            raise permissions.PermissionDenied("هذا الطلب ليس ملكك.")
-        return application

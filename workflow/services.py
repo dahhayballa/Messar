@@ -4,6 +4,7 @@ from django.utils import timezone
 from projects.models import NameReservation
 from projects.services import release_name_on_final_rejection
 from .models import Application, Document, StatusHistory
+from .utils import send_sms_notification
 
 
 def mandatory_documents_complete(project) -> bool:
@@ -42,6 +43,34 @@ def change_status(application: Application, to_status: str, note: str = "") -> A
             status=NameReservation.Status.REGISTERED
         )
 
+    # إرسال التنبيهات بالـ SMS (Parcours d'Ahmed)
+    investor_phone = application.project.investor.user.phone
+    if to_status == Application.Status.NEEDS_CORRECTION:
+        send_sms_notification(
+            investor_phone,
+            f"تمت مراجعة ملفك لمشروع «{application.project.name}». توجد ملاحظات يرجى تصحيحها: {note}"
+        )
+    elif to_status == Application.Status.INSPECTION_SCHEDULED:
+        send_sms_notification(
+            investor_phone,
+            f"تمت جدولة معاينة مقر مشروعك «{application.project.name}». يرجى التنسيق مع المفتش المعني."
+        )
+    elif to_status == Application.Status.PAYMENT_PENDING:
+        send_sms_notification(
+            investor_phone,
+            f"تم قبول المعاينة بنجاح لمشروع «{application.project.name}». تم إصدار أمر الدفع، المبلغ: 8,000 أوقية جديدة. يرجى رفع المخالصة بعد السداد."
+        )
+    elif to_status == Application.Status.PROVISIONAL_LICENSE:
+        send_sms_notification(
+            investor_phone,
+            f"مبروك! تم إصدار ترخيصك الأولي لمشروع «{application.project.name}». مدة الصلاحية: {application.project.service_type.provisional_validity_days} يوماً."
+        )
+    elif to_status == Application.Status.FINAL_LICENSE:
+        send_sms_notification(
+            investor_phone,
+            f"تهانينا! تم إصدار الترخيص النهائي لمشروع «{application.project.name}» بنجاح."
+        )
+
     return application
 
 
@@ -49,6 +78,11 @@ def change_status(application: Application, to_status: str, note: str = "") -> A
 def submit_application(project) -> Application:
     if not mandatory_documents_complete(project):
         raise ValueError("لا يمكن الإرسال قبل اكتمال كل الوثائق الإلزامية.")
+
+    # تأكيد حجز الاسم عند إرسال الطلب (CONFIRMED) لضمان عدم انتهائه خلال فترة الدراسة (الفصل الرابع)
+    NameReservation.objects.filter(project=project).update(
+        status=NameReservation.Status.CONFIRMED
+    )
 
     application, _ = Application.objects.get_or_create(project=project)
     application.submitted_at = timezone.now()

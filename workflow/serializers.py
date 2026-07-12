@@ -23,11 +23,28 @@ class ApplicationStatusSerializer(serializers.ModelSerializer):
     required_inspections_count = serializers.IntegerField(
         source="project.service_type.required_inspections_count", read_only=True
     )
+    progress_percentage = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Application
         fields = [
             "id", "status", "status_display", "completed_inspections_count",
             "required_inspections_count", "rejection_reason", "submitted_at",
-            "updated_at", "history",
+            "updated_at", "history", "progress_percentage",
         ]
+
+    def get_progress_percentage(self, obj) -> float:
+        # Calcule le pourcentage des documents requis soumis non rejetés
+        project = obj.project
+        mandatory_reqs = project.service_type.requirements.filter(required=True)
+        total_mandatory = mandatory_reqs.count()
+        if total_mandatory == 0:
+            return 100.0
+
+        uploaded_mandatory_count = Document.objects.filter(
+            project=project,
+            requirement__in=mandatory_reqs
+        ).exclude(status=Document.Status.REJECTED).count()
+
+        return round((uploaded_mandatory_count / total_mandatory) * 100.0, 2)
+

@@ -45,3 +45,12 @@ class OnboardingSerializer(serializers.Serializer):
     # الاسم المحجوز والنشاط
     project_name = serializers.CharField(max_length=255)
     service_type = serializers.PrimaryKeyRelatedField(queryset=ServiceType.objects.all())
+
+
+class ProjectCreateSerializer(serializers.Serializer):
+    """
+    Permet à un investisseur déjà connecté de créer un projet (Chapitre Final).
+    """
+    project_name = serializers.CharField(max_length=255)
+    service_type = serializers.PrimaryKeyRelatedField(queryset=ServiceType.objects.all())
+
