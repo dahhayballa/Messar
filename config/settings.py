@@ -14,6 +14,12 @@ import os
 import environ
 from pathlib import Path
 
+import sys
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -60,7 +66,16 @@ INSTALLED_APPS = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # SessionAuthentication مطلوب لتفعيل زر تسجيل الدخول في الـ Browsable API
+        'rest_framework.authentication.SessionAuthentication',
     ),
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        # يعرض النماذج (Forms) في واجهة الـ Browsable API
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
 }
 
 MIDDLEWARE = [
@@ -103,16 +118,34 @@ WSGI_APPLICATION = 'config.wsgi.application'
 #     }
 # }
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': env('DB_NAME'),
-        'USER': env('DB_USER'),
-        'PASSWORD': env('DB_PASSWORD'),
-        'HOST': env('DB_HOST'),
-        'PORT': env('DB_PORT'),
+
+
+
+
+if 'test' in sys.argv:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv("DB_NAME"),
+            'USER': os.getenv("DB_USER"),
+            'PASSWORD': os.getenv("DB_PASSWORD"),
+            'HOST': os.getenv("DB_HOST", "localhost"),
+            'PORT': os.getenv("DB_PORT", "5432"),
+        }
+    }
+    if os.getenv("DB_SSL", "False").lower() == "true":
+        DATABASES['default']['OPTIONS'] = {
+            'sslmode': 'require',
+        }
+
+
 
 if env('DB_SSL'):
     DATABASES['default']['OPTIONS'] = {

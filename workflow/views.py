@@ -1,6 +1,7 @@
-from rest_framework import viewsets, permissions, status, generics
+from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
 
 from projects.models import Project
 from .models import Application, Document
@@ -16,10 +17,10 @@ class IsProjectOwner(permissions.BasePermission):
         return project.investor.user_id == request.user.id
 
 
-class DocumentViewSet(viewsets.ModelViewSet):
+class DocumentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     """
-    ViewSet pour gérer le téléversement des pièces justificatives.
-    POST /api/workflow/documents/ - Téléverser ou remplacer un document.
+    الفصل السادس — رفع وثيقة واحدة. rejected سابقاً؟ الرفع الجديد
+    يستبدل القديمة تلقائياً بفضل unique_together على (project, requirement).
     """
     serializer_class = DocumentSerializer
     permission_classes = [permissions.IsAuthenticated, IsProjectOwner]
@@ -40,22 +41,14 @@ class DocumentViewSet(viewsets.ModelViewSet):
         serializer.save(status=Document.Status.PENDING)
 
 
-class ApplicationViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet pour suivre et soumettre l'application de licence.
-    GET /api/workflow/applications/<project_id>/ - Consulter l'état et l'historique (Chapitre 7).
-    POST /api/workflow/applications/<project_id>/submit/ - Soumettre le dossier (Chapitre 7).
-    """
+class ApplicationViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = ApplicationStatusSerializer
-    permission_classes = [permissions.IsAuthenticated, IsProjectOwner]
-    lookup_field = "project_id"
 
-    def get_queryset(self):
-        return Application.objects.filter(project__investor__user=self.request.user)
-
-    @action(detail=True, methods=["post"])
+    @action(detail=False, methods=["post"], url_path="projects/(?P<project_id>[^/.]+)/submit", url_name="submit")
     def submit(self, request, project_id=None):
-        project = generics.get_object_or_404(Project, pk=project_id)
+        """POST /api/workflow/projects/<project_id>/submit/ — الفصل السابع."""
+        project = get_object_or_404(Project, pk=project_id)
         if project.investor.user_id != request.user.id:
             return Response({"detail": "هذا المشروع ليس ملكك."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -64,4 +57,17 @@ class ApplicationViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(ApplicationStatusSerializer(application).data, status=status.HTTP_200_OK)
+        return Response(self.get_serializer(application).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="projects/(?P<project_id>[^/.]+)/status", url_name="status")
+    def status_view(self, request, project_id=None):
+        """
+        GET /api/workflow/projects/<project_id>/status/
+        الفصل السابع فصاعداً — لوحة المتابعة والخط الزمني الكامل.
+        """
+        application = get_object_or_404(Application, project_id=project_id)
+        if application.project.investor.user_id != self.request.user.id:
+            raise permissions.PermissionDenied("هذا الطلب ليس ملكك.")
+        return Response(self.get_serializer(application).data)
+
+

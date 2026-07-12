@@ -1,7 +1,7 @@
-from rest_framework import viewsets, permissions, status, generics
+from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser
+from django.shortcuts import get_object_or_404
 
 from .models import Inspection, Payment, License
 from .serializers import (
@@ -22,22 +22,37 @@ class IsAdmin(permissions.BasePermission):
         return getattr(request.user, "role", None) == "ADMIN" or request.user.is_staff
 
 
-class InspectionViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet pour gérer les inspections.
-    GET /api/operations/inspections/ - Liste des inspections de l'inspecteur connecté (Chapitre 8).
-    POST /api/operations/inspections/<id>/report/ - Soumettre le rapport d'inspection terrain (Chapitre 8).
-    """
+class InspectionViewSet(viewsets.GenericViewSet):
     serializer_class = InspectionSerializer
     permission_classes = [permissions.IsAuthenticated, IsInspector]
 
     def get_queryset(self):
         return Inspection.objects.filter(inspector=self.request.user).order_by("-created_at")
 
-    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser], url_path="report")
+    def get_serializer_class(self):
+        if self.action == "report":
+            return InspectionReportSerializer
+        return InspectionSerializer
+
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request):
+        """GET /api/operations/inspections/mine/ — مهام المفتش المُسندة له."""
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="report")
     def report(self, request, pk=None):
-        inspection = generics.get_object_or_404(Inspection, pk=pk, inspector=request.user)
-        serializer = InspectionReportSerializer(data=request.data)
+        """
+        POST /api/operations/inspections/<id>/report/
+        الفصل الثامن — المفتش يرسل النتيجة، فيتحرك الـWorkflow تلقائياً.
+        """
+        inspection = get_object_or_404(Inspection, pk=pk, inspector=request.user)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -53,12 +68,8 @@ class InspectionViewSet(viewsets.ModelViewSet):
         return Response(ApplicationStatusSerializer(application).data)
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet pour gérer les paiements.
-    POST /api/operations/payments/ - Uploader le reçu de paiement (Chapitre 9).
-    POST /api/operations/payments/<id>/verify/ - Confirmer le paiement (Admin) (Chapitre 9).
-    """
+
+class PaymentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -70,42 +81,53 @@ class PaymentViewSet(viewsets.ModelViewSet):
         return Payment.objects.filter(project__investor__user=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
+        """POST /api/operations/payments/ — الفصل التاسع: المستثمر يرفع المخالصة."""
         project = serializer.validated_data["project"]
         if project.investor.user_id != self.request.user.id:
             raise permissions.PermissionDenied("هذا المشروع ليس ملكك.")
         serializer.save(status="PENDING")
 
-    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, IsAdmin])
+    @action(detail=True, methods=["post"], url_path="verify", permission_classes=[permissions.IsAuthenticated, IsAdmin])
     def verify(self, request, pk=None):
-        payment = generics.get_object_or_404(Payment, pk=pk)
+        """
+        POST /api/operations/payments/<id>/verify/
+        الإدارة فقط — تأكيد المخالصة يُصدر الترخيص الأولي تلقائياً (الفصل العاشر).
+        """
+        payment = get_object_or_404(Payment, pk=pk)
         application = verify_payment(payment)
         return Response(ApplicationStatusSerializer(application).data)
 
 
-class LicenseViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet pour gérer et vérifier les licences.
-    GET /api/operations/licenses/?project_id=<id> - Consulter les licences d'un projet (Chapitre 10 & 11).
-    GET /api/operations/licenses/verify/<license_number>/ - Vérification publique de licence (Chapitre 11).
-    """
+class LicenseViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.AllowAny]
     serializer_class = LicenseSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        project_id = self.request.query_params.get("project_id")
-        if not project_id:
-            # Si aucun ID de projet n'est passé, les admins/inspecteurs peuvent voir toutes les licences.
-            if self.request.user.role in ["ADMIN", "INSPECTOR"] or self.request.user.is_staff:
-                return License.objects.all().order_by("-issued_at")
-            return License.objects.filter(project__investor__user=self.request.user).order_by("-issued_at")
-        
-        queryset = License.objects.filter(project_id=project_id)
-        if self.request.user.role == "INVESTOR":
-            queryset = queryset.filter(project__investor__user=self.request.user)
-        return queryset.order_by("-issued_at")
+            project_id = self.request.query_params.get("project_id")
+            if not project_id:
+                # Si aucun ID de projet n'est passé, les admins/inspecteurs peuvent voir toutes les licences.
+                if self.request.user.role in ["ADMIN", "INSPECTOR"] or self.request.user.is_staff:
+                    return License.objects.all().order_by("-issued_at")
+                return License.objects.filter(project__investor__user=self.request.user).order_by("-issued_at")
+            
+            queryset = License.objects.filter(project_id=project_id)
+            if self.request.user.role == "INVESTOR":
+                queryset = queryset.filter(project__investor__user=self.request.user)
+            return queryset.order_by("-issued_at")
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], url_path="verify/(?P<license_number>[^/.]+)")
-    def verify_public(self, request, license_number=None):
+    @action(detail=False, methods=["get"], url_path="projects/(?P<project_id>[^/.]+)/licenses", permission_classes=[permissions.IsAuthenticated])
+    def project_licenses(self, request, project_id=None):
+        """GET /api/operations/projects/<project_id>/licenses/ — تراخيص مشروع (أولي/نهائي)."""
+        queryset = License.objects.filter(project_id=project_id).order_by("-issued_at")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="verify/(?P<license_number>[^/.]+)")
+    def public_verify(self, request, license_number=None):
+        """
+        GET /api/operations/verify/<license_number>/
+        تحقق علني بلا مصادقة — أي سائح يتأكد أن الترخيص ساري (فكرة السعودية).
+        """
         try:
             license_obj = License.objects.select_related("project").get(license_number=license_number)
         except License.DoesNotExist:
@@ -120,3 +142,5 @@ class LicenseViewSet(viewsets.ReadOnlyModelViewSet):
             "issued_at": license_obj.issued_at,
             "expires_at": license_obj.expires_at,
         })
+
+
