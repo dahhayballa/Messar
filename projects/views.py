@@ -50,7 +50,6 @@ class ProjectViewSet(viewsets.GenericViewSet):
                 project_name=data["project_name"], service_type=data["service_type"],
             )
         except ValueError as exc:
-            # مثال: الاسم لم يعد متاحاً (حجزه شخص آخر بين التحقق والإرسال)
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)

@@ -10,7 +10,7 @@ from .services import submit_application
 
 
 class IsProjectOwner(permissions.BasePermission):
-    """المستثمر يرى ويعدّل وثائق/طلبات مشاريعه هو فقط."""
+    """L'investisseur ne peut voir/modifier que ses propres objets liés."""
 
     def has_object_permission(self, request, view, obj):
         project = obj if isinstance(obj, Project) else obj.project
@@ -22,17 +22,21 @@ class DocumentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     الفصل السادس — رفع وثيقة واحدة. rejected سابقاً؟ الرفع الجديد
     يستبدل القديمة تلقائياً بفضل unique_together على (project, requirement).
     """
-    queryset = Document.objects.all()
     serializer_class = DocumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsProjectOwner]
+
+    def get_queryset(self):
+        return Document.objects.filter(project__investor__user=self.request.user)
 
     def perform_create(self, serializer):
         project = serializer.validated_data["project"]
         if project.investor.user_id != self.request.user.id:
             raise permissions.PermissionDenied("هذا المشروع ليس ملكك.")
-        # إعادة رفع بعد رفض: حدّث السجل الموجود بدل خطأ تكرار
+        
+        # Supprimer le document existant du même type s'il y a un ré-upload après rejet (Chapitre 6 & 7)
         Document.objects.filter(
-            project=project, requirement=serializer.validated_data["requirement"]
+            project=project,
+            requirement=serializer.validated_data["requirement"]
         ).delete()
         serializer.save(status=Document.Status.PENDING)
 

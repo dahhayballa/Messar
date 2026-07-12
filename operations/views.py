@@ -54,10 +54,16 @@ class InspectionViewSet(viewsets.GenericViewSet):
         inspection = get_object_or_404(Inspection, pk=pk, inspector=request.user)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         application = submit_inspection_report(
-            inspection, result=serializer.validated_data["result"],
-            notes=serializer.validated_data.get("notes", ""),
+            inspection,
+            result=data["result"],
+            notes=data.get("notes", ""),
+            latitude=data["latitude"],
+            longitude=data["longitude"],
+            checklist_completed=data["checklist_completed"],
+            photo=data.get("photo"),
         )
         return Response(ApplicationStatusSerializer(application).data)
 
@@ -67,6 +73,12 @@ class PaymentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Un investisseur ne peut voir que ses paiements, un admin peut tout voir
+        if self.request.user.role == "ADMIN" or self.request.user.is_staff:
+            return Payment.objects.all().order_by("-created_at")
+        return Payment.objects.filter(project__investor__user=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
         """POST /api/operations/payments/ — الفصل التاسع: المستثمر يرفع المخالصة."""
@@ -89,6 +101,19 @@ class PaymentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
 class LicenseViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = LicenseSerializer
+
+    def get_queryset(self):
+            project_id = self.request.query_params.get("project_id")
+            if not project_id:
+                # Si aucun ID de projet n'est passé, les admins/inspecteurs peuvent voir toutes les licences.
+                if self.request.user.role in ["ADMIN", "INSPECTOR"] or self.request.user.is_staff:
+                    return License.objects.all().order_by("-issued_at")
+                return License.objects.filter(project__investor__user=self.request.user).order_by("-issued_at")
+            
+            queryset = License.objects.filter(project_id=project_id)
+            if self.request.user.role == "INVESTOR":
+                queryset = queryset.filter(project__investor__user=self.request.user)
+            return queryset.order_by("-issued_at")
 
     @action(detail=False, methods=["get"], url_path="projects/(?P<project_id>[^/.]+)/licenses", permission_classes=[permissions.IsAuthenticated])
     def project_licenses(self, request, project_id=None):

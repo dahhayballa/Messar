@@ -5,7 +5,10 @@ from .models import Inspection, Payment, License
 class InspectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inspection
-        fields = ["id", "project", "inspector", "status", "result", "notes", "created_at"]
+        fields = [
+            "id", "project", "inspector", "status", "result", "notes",
+            "latitude", "longitude", "checklist_completed", "photo", "created_at"
+        ]
         read_only_fields = ["status", "created_at"]
 
 
@@ -16,6 +19,16 @@ class InspectionReportSerializer(serializers.Serializer):
     """
     result = serializers.ChoiceField(choices=[("PASSED", "مطابقة"), ("FAILED", "غير مطابقة")])
     notes = serializers.CharField(required=False, allow_blank=True)
+    latitude = serializers.FloatField(required=True)
+    longitude = serializers.FloatField(required=True)
+    checklist_completed = serializers.BooleanField(required=True)
+    photo = serializers.ImageField(required=False, allow_null=True)
+
+    def validate_checklist_completed(self, value):
+        if not value:
+            raise serializers.ValidationError("يجب إكمال قائمة التحقق (Checklist) قبل إرسال التقرير.")
+        return value
+
 
 
 class PaymentSerializer(serializers.ModelSerializer):

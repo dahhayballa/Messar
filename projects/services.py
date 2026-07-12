@@ -78,3 +78,28 @@ def release_name_on_final_rejection(project: Project) -> None:
     NameReservation.objects.filter(project=project).update(
         status=NameReservation.Status.EXPIRED
     )
+
+
+@transaction.atomic
+def create_project_for_existing_investor(*, investor: Investor, project_name: str, service_type: ServiceType) -> Project:
+    """
+    Permet à un investisseur existant de créer un nouveau projet et de réserver son nom (Chapitre Final).
+    Processus atomique : vérification du nom -> création du projet -> création de la réservation de nom (RESERVED pour 7 jours).
+    """
+    if not is_name_available(project_name, service_type):
+        raise ValueError(f"الاسم «{project_name}» مستخدم بالفعل لنشاط «{service_type}»")
+
+    project = Project.objects.create(
+        investor=investor, service_type=service_type, name=project_name, status="DRAFT",
+        wilaya="", moughataa="", address="",
+    )
+
+    NameReservation.objects.create(
+        name=project_name, service_type=service_type, investor=investor,
+        status=NameReservation.Status.RESERVED,
+        expires_at=timezone.now() + timedelta(days=RESERVATION_DAYS),
+        project=project,
+    )
+
+    return project
+

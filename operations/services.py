@@ -17,7 +17,11 @@ def generate_license_number(project) -> str:
 
 
 @transaction.atomic
-def submit_inspection_report(inspection: Inspection, result: str, notes: str = "") -> Application:
+def submit_inspection_report(
+    inspection: Inspection, result: str, notes: str = "",
+    latitude: float = None, longitude: float = None,
+    checklist_completed: bool = False, photo = None
+) -> Application:
     """
     الفصل الثامن: المفتش يرسل تقريره. يحدّث Inspection ثم يُشغّل منطق
     workflow.record_inspection_result المسؤول عن قرار الحالة التالية.
@@ -25,7 +29,12 @@ def submit_inspection_report(inspection: Inspection, result: str, notes: str = "
     inspection.result = result
     inspection.status = "DONE"
     inspection.notes = notes
-    inspection.save(update_fields=["result", "status", "notes"])
+    inspection.latitude = latitude
+    inspection.longitude = longitude
+    inspection.checklist_completed = checklist_completed
+    if photo:
+        inspection.photo = photo
+    inspection.save(update_fields=["result", "status", "notes", "latitude", "longitude", "checklist_completed", "photo"])
 
     application = Application.objects.get(project=inspection.project)
     passed = result == "PASSED"
@@ -40,6 +49,7 @@ def submit_inspection_report(inspection: Inspection, result: str, notes: str = "
         )
 
     return application
+
 
 
 @transaction.atomic
