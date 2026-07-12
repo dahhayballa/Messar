@@ -1,8 +1,12 @@
-from django.urls import path
-from .views import DocumentUploadView, SubmitApplicationView, ApplicationStatusView
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import DocumentViewSet, ApplicationViewSet
+
+router = DefaultRouter()
+router.register(r"documents", DocumentViewSet, basename="document")
+router.register(r"", ApplicationViewSet, basename="application")
 
 urlpatterns = [
-    path("documents/", DocumentUploadView.as_view(), name="document-upload"),
-    path("projects/<int:project_id>/submit/", SubmitApplicationView.as_view(), name="application-submit"),
-    path("projects/<int:project_id>/status/", ApplicationStatusView.as_view(), name="application-status"),
+    path("", include(router.urls)),
 ]
+

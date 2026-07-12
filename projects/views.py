@@ -1,48 +1,44 @@
-from rest_framework import permissions, status
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from core.models import ServiceType
-from .serializers import OnboardingSerializer, ProjectSerializer
+from .serializers import OnboardingSerializer, ProjectSerializer, CheckNameSerializer
 from .services import create_full_onboarding, is_name_available
 
 
-class CheckNameView(APIView):
-    """
-    GET /api/projects/check-name/?name=رحلات الصحراء&service_type=3
-    الفصل الثالث في الرحلة — بلا مصادقة، أي زائر يستطيع البحث.
-    """
+class ProjectViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
 
-    def get(self, request):
-        name = request.query_params.get("name", "").strip()
-        service_type_id = request.query_params.get("service_type")
+    def get_serializer_class(self):
+        if self.action == "check_name":
+            return CheckNameSerializer
+        return OnboardingSerializer
 
-        if not name or not service_type_id:
-            return Response(
-                {"detail": "الحقلان name وservice_type إلزاميان."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    @action(detail=False, methods=["get", "post"], url_path="check-name")
+    def check_name(self, request):
+        """
+        GET/POST /api/projects/check-name/
+        الفصل الثالث في الرحلة — بلا مصادقة، أي زائر يستطيع البحث.
+        """
+        data = request.data if request.method == "POST" else request.query_params
+        serializer = CheckNameSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            service_type = ServiceType.objects.get(pk=service_type_id)
-        except ServiceType.DoesNotExist:
-            return Response({"detail": "نوع النشاط غير موجود."}, status=status.HTTP_404_NOT_FOUND)
+        name = serializer.validated_data["name"]
+        service_type = serializer.validated_data["service_type"]
 
         available = is_name_available(name, service_type)
         return Response({"name": name, "service_type": service_type.name, "available": available})
 
-
-class OnboardingView(APIView):
-    """
-    POST /api/projects/onboarding/
-    الفصل الرابع — شاشة واحدة تُنشئ الحساب والمستثمر وتحجز الاسم
-    وتُنشئ المشروع، في عملية ذرّية واحدة (قاعدة 5.3).
-    """
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = OnboardingSerializer(data=request.data)
+    @action(detail=False, methods=["post"], url_path="onboarding")
+    def onboarding(self, request):
+        """
+        POST /api/projects/onboarding/
+        الفصل الرابع — شاشة واحدة تُنشئ الحساب والمستثمر وتحجز الاسم
+        وتُنشئ المشروع، في عملية ذرّية واحدة (قاعدة 5.3).
+        """
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -58,3 +54,5 @@ class OnboardingView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
+
+

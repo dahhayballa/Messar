@@ -1,6 +1,7 @@
-from rest_framework import generics, permissions, status
+from rest_framework import viewsets, permissions, status, mixins
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
 from .models import Inspection, Payment, License
 from .serializers import (
@@ -21,25 +22,37 @@ class IsAdmin(permissions.BasePermission):
         return getattr(request.user, "role", None) == "ADMIN" or request.user.is_staff
 
 
-class MyInspectionListView(generics.ListAPIView):
-    """GET /api/operations/inspections/mine/ — مهام المفتش المُسندة له."""
+class InspectionViewSet(viewsets.GenericViewSet):
     serializer_class = InspectionSerializer
     permission_classes = [permissions.IsAuthenticated, IsInspector]
 
     def get_queryset(self):
         return Inspection.objects.filter(inspector=self.request.user).order_by("-created_at")
 
+    def get_serializer_class(self):
+        if self.action == "report":
+            return InspectionReportSerializer
+        return InspectionSerializer
 
-class InspectionReportView(APIView):
-    """
-    POST /api/operations/inspections/<id>/report/
-    الفصل الثامن — المفتش يرسل النتيجة، فيتحرك الـWorkflow تلقائياً.
-    """
-    permission_classes = [permissions.IsAuthenticated, IsInspector]
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request):
+        """GET /api/operations/inspections/mine/ — مهام المفتش المُسندة له."""
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
-    def post(self, request, pk):
-        inspection = generics.get_object_or_404(Inspection, pk=pk, inspector=request.user)
-        serializer = InspectionReportSerializer(data=request.data)
+    @action(detail=True, methods=["post"], url_path="report")
+    def report(self, request, pk=None):
+        """
+        POST /api/operations/inspections/<id>/report/
+        الفصل الثامن — المفتش يرسل النتيجة، فيتحرك الـWorkflow تلقائياً.
+        """
+        inspection = get_object_or_404(Inspection, pk=pk, inspector=request.user)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         application = submit_inspection_report(
@@ -49,49 +62,47 @@ class InspectionReportView(APIView):
         return Response(ApplicationStatusSerializer(application).data)
 
 
-class PaymentUploadView(generics.CreateAPIView):
-    """POST /api/operations/payments/ — الفصل التاسع: المستثمر يرفع المخالصة."""
+
+class PaymentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
+        """POST /api/operations/payments/ — الفصل التاسع: المستثمر يرفع المخالصة."""
         project = serializer.validated_data["project"]
         if project.investor.user_id != self.request.user.id:
             raise permissions.PermissionDenied("هذا المشروع ليس ملكك.")
         serializer.save(status="PENDING")
 
-
-class PaymentVerifyView(APIView):
-    """
-    POST /api/operations/payments/<id>/verify/
-    الإدارة فقط — تأكيد المخالصة يُصدر الترخيص الأولي تلقائياً (الفصل العاشر).
-    """
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        payment = generics.get_object_or_404(Payment, pk=pk)
+    @action(detail=True, methods=["post"], url_path="verify", permission_classes=[permissions.IsAuthenticated, IsAdmin])
+    def verify(self, request, pk=None):
+        """
+        POST /api/operations/payments/<id>/verify/
+        الإدارة فقط — تأكيد المخالصة يُصدر الترخيص الأولي تلقائياً (الفصل العاشر).
+        """
+        payment = get_object_or_404(Payment, pk=pk)
         application = verify_payment(payment)
         return Response(ApplicationStatusSerializer(application).data)
 
 
-class ProjectLicensesView(generics.ListAPIView):
-    """GET /api/operations/projects/<project_id>/licenses/ — تراخيص مشروع (أولي/نهائي)."""
-    serializer_class = LicenseSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return License.objects.filter(project_id=self.kwargs["project_id"]).order_by("-issued_at")
-
-
-class LicensePublicVerifyView(APIView):
-    """
-    GET /api/operations/verify/<license_number>/
-    تحقق علني بلا مصادقة — أي سائح يتأكد أن الترخيص ساري (فكرة السعودية).
-    """
+class LicenseViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
+    serializer_class = LicenseSerializer
 
-    def get(self, request, license_number):
+    @action(detail=False, methods=["get"], url_path="projects/(?P<project_id>[^/.]+)/licenses", permission_classes=[permissions.IsAuthenticated])
+    def project_licenses(self, request, project_id=None):
+        """GET /api/operations/projects/<project_id>/licenses/ — تراخيص مشروع (أولي/نهائي)."""
+        queryset = License.objects.filter(project_id=project_id).order_by("-issued_at")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="verify/(?P<license_number>[^/.]+)")
+    def public_verify(self, request, license_number=None):
+        """
+        GET /api/operations/verify/<license_number>/
+        تحقق علني بلا مصادقة — أي سائح يتأكد أن الترخيص ساري (فكرة السعودية).
+        """
         try:
             license_obj = License.objects.select_related("project").get(license_number=license_number)
         except License.DoesNotExist:
@@ -106,3 +117,5 @@ class LicensePublicVerifyView(APIView):
             "issued_at": license_obj.issued_at,
             "expires_at": license_obj.expires_at,
         })
+
+

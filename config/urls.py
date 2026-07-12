@@ -25,6 +25,9 @@ urlpatterns = [
     path("api/auth/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 
+    # تسجيل الدخول/الخروج من واجهة الـ Browsable API
+    path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
+
     # التطبيقات
     path("api/", include("core.urls")),
     path("api/projects/", include("projects.urls")),
