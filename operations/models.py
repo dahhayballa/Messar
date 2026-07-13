@@ -22,11 +22,18 @@ class Inspection(models.Model):
 
 
 
+from core.storage import SupabaseStorage
+
+payment_storage = SupabaseStorage(bucket_name="payment")
+
+def payment_upload_path(instance, filename):
+    return filename
+
 class Payment(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
 
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    receipt = models.FileField(upload_to='payments/')
+    receipt = models.FileField(upload_to=payment_upload_path, storage=payment_storage)
     status = models.CharField(max_length=20, default='PENDING')
 
     created_at = models.DateTimeField(auto_now_add=True)

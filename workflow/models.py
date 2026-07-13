@@ -37,6 +37,15 @@ class Application(models.Model):
         return f"{self.project.name} — {self.get_status_display()}"
 
 
+from core.storage import SupabaseStorage
+
+document_storage = SupabaseStorage(bucket_name="documents")
+
+def document_upload_path(instance, filename):
+    import datetime
+    now = datetime.datetime.now()
+    return f"{now.strftime('%Y/%m')}/{filename}"
+
 class Document(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "قيد المراجعة"
@@ -46,7 +55,8 @@ class Document(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="documents")
     requirement = models.ForeignKey(Requirement, on_delete=models.CASCADE)
 
-    file = models.FileField(upload_to="documents/%Y/%m/")
+    file = models.FileField(upload_to=document_upload_path, storage=document_storage)
+
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.PENDING)
     rejection_reason = models.CharField(max_length=255, blank=True)
 
