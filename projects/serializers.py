@@ -50,3 +50,19 @@ class CheckNameSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, label="الاسم المقترح")
     service_type = serializers.PrimaryKeyRelatedField(queryset=ServiceType.objects.all(), label="نوع النشاط")
 
+
+class ProjectLocationSerializer(serializers.ModelSerializer):
+    """الفصل الخامس: تحديد موقع المشروع بعد إنشائه."""
+
+    class Meta:
+        model = Project
+        fields = ["wilaya", "moughataa", "address", "latitude", "longitude"]
+
+
+class NewProjectSerializer(serializers.Serializer):
+    """
+    الفصل الأخير («مَسار يعرف أحمد»): مستثمر مسجَّل مسبقاً يضيف مشروعاً
+    جديداً بلا إعادة تسجيل — يتخطى بيانات الحساب والهوية بالكامل.
+    """
+    project_name = serializers.CharField(max_length=255)
+    service_type = serializers.PrimaryKeyRelatedField(queryset=ServiceType.objects.all())

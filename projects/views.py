@@ -1,10 +1,15 @@
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
 
 from core.models import ServiceType
-from .serializers import OnboardingSerializer, ProjectSerializer, CheckNameSerializer
-from .services import create_full_onboarding, is_name_available
+from .models import Investor, Project
+from .serializers import (
+    OnboardingSerializer, ProjectSerializer, CheckNameSerializer,
+    ProjectLocationSerializer, NewProjectSerializer,
+)
+from .services import create_full_onboarding, create_project_for_existing_investor, is_name_available
 
 
 class ProjectViewSet(viewsets.GenericViewSet):
@@ -13,6 +18,10 @@ class ProjectViewSet(viewsets.GenericViewSet):
     def get_serializer_class(self):
         if self.action == "check_name":
             return CheckNameSerializer
+        if self.action == "new_project":
+            return NewProjectSerializer
+        if self.action == "location":
+            return ProjectLocationSerializer
         return OnboardingSerializer
 
     @action(detail=False, methods=["get", "post"], url_path="check-name")
@@ -54,4 +63,48 @@ class ProjectViewSet(viewsets.GenericViewSet):
 
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=["post"], url_path="new-project",
+            permission_classes=[permissions.IsAuthenticated])
+    def new_project(self, request):
+        """
+        POST /api/projects/new-project/
+        الفصل الأخير («مَسار يعرف أحمد») — مستثمر مسجَّل مسبقاً يفتح
+        مشروعاً ثانياً بلا تسجيل جديد.
+        """
+        try:
+            investor = Investor.objects.get(user=request.user)
+        except Investor.DoesNotExist:
+            return Response(
+                {"detail": "لا يوجد ملف مستثمر لهذا الحساب — استخدم onboarding أولاً."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            project = create_project_for_existing_investor(
+                investor=investor,
+                project_name=serializer.validated_data["project_name"],
+                service_type=serializer.validated_data["service_type"],
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch"], url_path="location",
+            permission_classes=[permissions.IsAuthenticated])
+    def location(self, request, pk=None):
+        """
+        PATCH /api/projects/<pk>/location/
+        الفصل الخامس — تحديد الولاية والبلدية والعنوان والإحداثيات.
+        """
+        project = get_object_or_404(Project, pk=pk)
+        if project.investor.user_id != request.user.id:
+            raise permissions.PermissionDenied("هذا المشروع ليس ملكك.")
+
+        serializer = self.get_serializer(project, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

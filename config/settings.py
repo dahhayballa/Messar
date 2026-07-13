@@ -61,6 +61,8 @@ INSTALLED_APPS = [
     'projects',
     'workflow',
     'operations',
+
+    'drf_spectacular',
 ]
 
 REST_FRAMEWORK = {
@@ -74,8 +76,15 @@ REST_FRAMEWORK = {
         # يعرض النماذج (Forms) في واجهة الـ Browsable API
         'rest_framework.renderers.BrowsableAPIRenderer',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'مَسار API',
+    'DESCRIPTION': 'منصة رقمية للاستثمار السياحي في موريتانيا',
+    'VERSION': '1.0.0',
 }
 
 MIDDLEWARE = [

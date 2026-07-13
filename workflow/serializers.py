@@ -48,3 +48,13 @@ class ApplicationStatusSerializer(serializers.ModelSerializer):
 
         return round((uploaded_mandatory_count / total_mandatory) * 100.0, 2)
 
+
+class DocumentReviewSerializer(serializers.Serializer):
+    """الفصل السابع: مراجعة وثيقة واحدة — قبول أو رفض بسبب واضح."""
+    approved = serializers.BooleanField()
+    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, data):
+        if not data["approved"] and not data.get("rejection_reason"):
+            raise serializers.ValidationError("سبب الرفض إلزامي عند رفض وثيقة.")
+        return data

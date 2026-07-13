@@ -108,3 +108,34 @@ def record_inspection_result(application: Application, passed: bool) -> Applicat
         return change_status(application, Application.Status.FINAL_LICENSE, note="اكتمل عدد التفتيشات")
 
     return change_status(application, Application.Status.FOLLOWUP_INSPECTIONS, note="معاينة إضافية ناجحة")
+
+
+@transaction.atomic
+def review_document(document: Document, approved: bool, rejection_reason: str = "") -> Document:
+    """
+    الفصل السابع: الإداري يراجع وثيقة واحدة بعينها — لا الملف كاملاً.
+    الرفض يُرجع حالة الطلب إلى NEEDS_CORRECTION مع سبب محدد وواضح
+    (وتُطلَق تلقائياً رسالة SMS بفضل منطق change_status أعلاه).
+    """
+    document.status = Document.Status.APPROVED if approved else Document.Status.REJECTED
+    document.rejection_reason = "" if approved else rejection_reason
+    document.save(update_fields=["status", "rejection_reason"])
+
+    if not approved:
+        application = Application.objects.filter(project=document.project).first()
+        if application:
+            change_status(
+                application, Application.Status.NEEDS_CORRECTION,
+                note=f"رفض وثيقة: {document.requirement.name} — {rejection_reason}",
+            )
+
+    return document
+
+
+@transaction.atomic
+def approve_application_for_inspection(application: Application) -> Application:
+    """
+    الفصل السابع (نهايته): الإداري يوافق على كامل الملف بعد مراجعة كل
+    الوثائق، فينتقل الطلب لجدولة المعاينة الميدانية (وتُرسَل SMS تلقائياً).
+    """
+    return change_status(application, Application.Status.INSPECTION_SCHEDULED, note="موافقة إدارية على الملف")
