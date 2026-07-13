@@ -108,3 +108,18 @@ class ProjectViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
+    def mine(self, request):
+        """
+        GET /api/projects/mine/
+        الفصل الأخير («مَسار يعرف أحمد») — كل مشاريع المستثمر المسجَّل
+        دخوله حالياً، بلا حاجة لتذكّر أي رقم مشروع يدوياً.
+        """
+        try:
+            investor = Investor.objects.get(user=request.user)
+        except Investor.DoesNotExist:
+            return Response([])
+
+        projects = Project.objects.filter(investor=investor).order_by("-created_at")
+        return Response(ProjectSerializer(projects, many=True).data)
