@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # ---------------
-    
+    'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
 
@@ -79,6 +79,8 @@ REST_FRAMEWORK = {
 }
 
 MIDDLEWARE = [
+    # يجب أن يكون CorsMiddleware قبل أي Middleware آخر يُعالج الردود
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,6 +89,15 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# ─── CORS ───────────────────────────────────────────────────────────────────
+# السماح لواجهة Vite (localhost:5173) بالتواصل مع Django
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+# السماح بإرسال الـ cookies/credentials (مطلوب إذا استخدمت SessionAuth أو JWT في الكوكيز)
+CORS_ALLOW_CREDENTIALS = True
 
 ROOT_URLCONF = 'config.urls'
 
