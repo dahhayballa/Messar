@@ -1,4 +1,4 @@
-from rest_framework import permissions, status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -12,9 +12,12 @@ from .serializers import (
 from .services import create_full_onboarding, create_project_for_existing_investor, is_name_available
 
 
-class ProjectViewSet(viewsets.GenericViewSet):
+class ProjectViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
 
+    def get_queryset(self):
+        return Project.objects.all()
+    
     def get_serializer_class(self):
         if self.action == "check_name":
             return CheckNameSerializer
@@ -22,6 +25,8 @@ class ProjectViewSet(viewsets.GenericViewSet):
             return NewProjectSerializer
         if self.action == "location":
             return ProjectLocationSerializer
+        if self.action in ("list", "mine"):
+            return ProjectSerializer
         return OnboardingSerializer
 
     @action(detail=False, methods=["get", "post"], url_path="check-name")
